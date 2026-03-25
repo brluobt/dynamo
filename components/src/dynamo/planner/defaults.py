@@ -44,7 +44,7 @@ class BasePlannerDefaults:
     environment: Literal["kubernetes", "virtual", "global-planner"] = "kubernetes"
     backend: Literal["vllm", "sglang", "trtllm", "mocker"] = "vllm"
     no_operation = False
-    log_dir = None
+    log_dir = "/tmp/planner"
     throughput_adjustment_interval = 180  # in seconds
     max_gpu_budget = 8
     min_endpoint = 1  # applies to both decode and prefill
