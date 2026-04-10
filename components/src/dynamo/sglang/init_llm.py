@@ -9,11 +9,13 @@ from typing import Awaitable, Callable, Optional
 
 import sglang as sgl
 
+from dynamo.common.constants import DisaggregationMode
 from dynamo.common.utils.endpoint_types import parse_endpoint_types
 from dynamo.llm import ModelInput, ModelType
 from dynamo.runtime import DistributedRuntime
 from dynamo.sglang.args import Config
 from dynamo.sglang.health_check import (
+    SglangDisaggHealthCheckPayload,
     SglangHealthCheckPayload,
     SglangPrefillHealthCheckPayload,
 )
@@ -27,13 +29,12 @@ async def _warmup_prefill_engine(engine: sgl.Engine, server_args) -> None:
     logging.info("Start of prefill disaggregation warmup ...")
     try:
         from sglang.srt.disaggregation.utils import FAKE_BOOTSTRAP_HOST
-        from sglang.srt.sampling.sampling_params import SamplingParams
 
-        sampling_params = SamplingParams(
-            temperature=0.0,
-            max_new_tokens=8,
-            ignore_eos=True,
-        )
+        sampling_params = {
+            "temperature": 0.0,
+            "max_new_tokens": 8,
+            "ignore_eos": True,
+        }
 
         async def _do_warmup():
             results = await engine.async_generate(
@@ -101,9 +102,14 @@ async def init_decode(
     )
     handler.register_engine_routes(runtime)
 
-    health_check_payload = SglangHealthCheckPayload(
-        engine, use_text_input=dynamo_args.use_sglang_tokenizer
-    ).to_dict()
+    if config.serving_mode == DisaggregationMode.DECODE:
+        health_check_payload = SglangDisaggHealthCheckPayload(
+            engine, use_text_input=dynamo_args.use_sglang_tokenizer
+        ).to_dict()
+    else:
+        health_check_payload = SglangHealthCheckPayload(
+            engine, use_text_input=dynamo_args.use_sglang_tokenizer
+        ).to_dict()
 
     logging.info(f"Registering model with endpoint types: {dynamo_args.endpoint_types}")
     if dynamo_args.custom_jinja_template and "chat" not in dynamo_args.endpoint_types:

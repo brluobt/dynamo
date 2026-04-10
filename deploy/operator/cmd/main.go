@@ -68,6 +68,7 @@ import (
 	internalcert "github.com/ai-dynamo/dynamo/deploy/operator/internal/cert"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/controller"
 	commonController "github.com/ai-dynamo/dynamo/deploy/operator/internal/controller_common"
+	"github.com/ai-dynamo/dynamo/deploy/operator/internal/gpu"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/modelendpoint"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/namespace_scope"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/observability"
@@ -634,12 +635,14 @@ func registerControllers(
 	}
 
 	if err = (&controller.DynamoGraphDeploymentRequestReconciler{
-		Client:        mgr.GetClient(),
-		APIReader:     mgr.GetAPIReader(),
-		Recorder:      mgr.GetEventRecorderFor("dynamographdeploymentrequest"),
-		Config:        operatorCfg,
-		RuntimeConfig: runtimeConfig,
-		RBACManager:   rbacManager,
+		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
+		Recorder:          mgr.GetEventRecorderFor("dynamographdeploymentrequest"),
+		Config:            operatorCfg,
+		RuntimeConfig:     runtimeConfig,
+		GPUDiscoveryCache: gpu.NewGPUDiscoveryCache(),
+		GPUDiscovery:      gpu.NewGPUDiscovery(gpu.ScrapeMetricsEndpoint),
+		RBACManager:       rbacManager,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to create DynamoGraphDeploymentRequest controller: %w", err)
 	}
@@ -683,6 +686,14 @@ func registerWebhooks(
 		internalwebhook.SetExcludedNamespaces(nil)
 	}
 
+	var operatorPrincipal string
+	if sa, ns := os.Getenv("POD_SERVICE_ACCOUNT"), os.Getenv("POD_NAMESPACE"); sa != "" && ns != "" {
+		operatorPrincipal = fmt.Sprintf("system:serviceaccount:%s:%s", ns, sa)
+		setupLog.Info("Detected operator principal from downward API", "principal", operatorPrincipal)
+	} else {
+		setupLog.Info("POD_SERVICE_ACCOUNT/POD_NAMESPACE not set; operator SA self-identification disabled")
+	}
+
 	setupLog.Info("Registering validation webhooks")
 
 	dcdHandler := webhookvalidation.NewDynamoComponentDeploymentHandler()
@@ -690,7 +701,7 @@ func registerWebhooks(
 		return fmt.Errorf("unable to register DynamoComponentDeployment webhook: %w", err)
 	}
 
-	dgdHandler := webhookvalidation.NewDynamoGraphDeploymentHandler(mgr)
+	dgdHandler := webhookvalidation.NewDynamoGraphDeploymentHandler(mgr, operatorPrincipal)
 	if err := dgdHandler.RegisterWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to register DynamoGraphDeployment webhook: %w", err)
 	}
