@@ -239,12 +239,20 @@ def _run_default_sim(
         load_kwargs["target_concurrency"] = dgdr.workload.concurrency
         load_kwargs["max_total_gpus"] = total_gpus
 
-    chosen, best_configs, _, _, best_latencies_map = _execute_task_configs(
-        task_configs,
-        mode="default",
-        top_n=5,
-        **load_kwargs,
-    )
+    try:
+        chosen, best_configs, _, _, best_latencies_map = _execute_task_configs(
+            task_configs,
+            mode="default",
+            top_n=5,
+            **load_kwargs,
+        )
+    except KeyError as exc:
+        logger.warning(
+            "AIC simulation raised KeyError (%s) — pareto analysis produced NaN indexes. "
+            "Falling back to naive config generation.",
+            exc,
+        )
+        return _run_naive_fallback(dgdr, model, total_gpus, system, backend)
 
     # When interpolation data is needed (mocker or throughput-scaling), a
     # disaggregated config is required.  If AIC picked an aggregated config,
